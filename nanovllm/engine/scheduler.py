@@ -42,43 +42,47 @@ class Scheduler:
         返回本轮调度的序列列表和是否为prefill阶段。
         """
         # prefill阶段
-        scheduled_seqs = []
-        num_seqs = 0
-        num_batched_tokens = 0
+        scheduled_seqs = []  # 本轮被调度的序列
+        num_seqs = 0         # 当前已调度的序列数
+        num_batched_tokens = 0  # 当前已调度的token总数
+
+        # 1. prefill阶段：优先从waiting队列中调度新序列
         while self.waiting and num_seqs < self.max_num_seqs:
-            seq = self.waiting[0]
+            seq = self.waiting[0]  # 取队首序列
             # 判断token数和KV块是否足够
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
-                break
+                break  # 超出限制则停止调度
             num_seqs += 1
-            self.block_manager.allocate(seq)
-            num_batched_tokens += len(seq) - seq.num_cached_tokens
-            seq.status = SequenceStatus.RUNNING
-            self.waiting.popleft()
-            self.running.append(seq)
-            scheduled_seqs.append(seq)
+            self.block_manager.allocate(seq)  # 分配KV缓存块
+            num_batched_tokens += len(seq) - seq.num_cached_tokens  # 统计本轮新处理的token数，如果某个token在缓存里面就不加入
+            seq.status = SequenceStatus.RUNNING  # 状态设为运行中
+            self.waiting.popleft()  # 从waiting队列移除
+            self.running.append(seq)  # 加入running队列
+            scheduled_seqs.append(seq)  # 记录本轮调度的序列
+
         if scheduled_seqs:
             # 如果有调度的序列，返回并标记为prefill阶段
             return scheduled_seqs, True
 
-        # decode阶段
+        # 2. decode阶段：对已在running队列中的序列做增量生成
         while self.running and num_seqs < self.max_num_seqs:
-            seq = self.running.popleft()
+            seq = self.running.popleft()  # 取出一个运行中的序列
             # 如果KV块不足，抢占其他序列
             while not self.block_manager.can_append(seq):
                 if self.running:
-                    self.preempt(self.running.pop())
+                    self.preempt(self.running.pop())  # 抢占并回收最后一个序列的资源
                 else:
-                    self.preempt(seq)
+                    self.preempt(seq)  # 如果只剩当前序列，也要抢占
                     break
             else:
                 num_seqs += 1
-                self.block_manager.may_append(seq)
+                self.block_manager.may_append(seq)  # 追加token时的block分配
                 scheduled_seqs.append(seq)
-        assert scheduled_seqs
-        # 将本轮调度的序列重新放回运行队列
+        assert scheduled_seqs  # 保证本轮至少有一个序列被调度
+
+        # 将本轮调度的序列重新放回运行队列（保持顺序）
         self.running.extendleft(reversed(scheduled_seqs))
-        return scheduled_seqs, False
+        return scheduled_seqs, False  # 返回本轮调度的序列和decode阶段标志
 
     def preempt(self, seq: Sequence):
         """

@@ -207,23 +207,31 @@ class ModelRunner:
 
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
-        # 执行模型推理
+        # 执行模型推理（不计算梯度，节省显存和加速）
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+            # 如果是 prefill 阶段，或强制 eager 模式，或 batch size 大于 512
+            # 直接用常规方式前向推理并计算 logits
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
-            bs = input_ids.size(0)
-            context = get_context()
+            # 否则，使用 CUDA Graphs 加速 decode 阶段
+            bs = input_ids.size(0)  # 当前 batch size
+            context = get_context()  # 获取当前推理上下文
+            # 选择合适 batch size 的 CUDA Graph
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
-            graph_vars = self.graph_vars
+            graph_vars = self.graph_vars  # 获取 CUDA Graph 相关变量
+            # 清零所有输入变量（除了 outputs）
             for k, v in graph_vars.items():
                 if k != "outputs":
                     v.zero_()
+            # 将本次推理的输入数据写入 CUDA Graph 变量
             graph_vars["input_ids"][:bs] = input_ids
             graph_vars["positions"][:bs] = positions
             graph_vars["slot_mapping"][:bs] = context.slot_mapping
             graph_vars["context_lens"][:bs] = context.context_lens
             graph_vars["block_tables"][:bs, :context.block_tables.size(1)] = context.block_tables
+            # 复用 CUDA Graph 进行推理
             graph.replay()
+            # 返回本次推理的 logits
             return self.model.compute_logits(graph_vars["outputs"][:bs])
 
     def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:

@@ -6,21 +6,22 @@ from nanovllm.engine.sequence import Sequence
 
 
 class Block:
+    # 定义一个 Block 类，用于表示 KV 缓存中的一个块
 
     def __init__(self, block_id):
-        self.block_id = block_id
-        self.ref_count = 0
-        self.hash = -1
-        self.token_ids = []
+        self.block_id = block_id           # 块的唯一编号
+        self.ref_count = 0                 # 当前被多少序列引用（引用计数）
+        self.hash = -1                     # 当前块内容的哈希值，-1 表示未设置
+        self.token_ids = []                # 当前块存储的 token id 列表
 
     def update(self, hash: int, token_ids: list[int]):
-        self.hash = hash
-        self.token_ids = token_ids
+        self.hash = hash                   # 更新块的哈希值
+        self.token_ids = token_ids         # 更新块中存储的 token id 列表
 
     def reset(self):
-        self.ref_count = 1
-        self.hash = -1
-        self.token_ids = []
+        self.ref_count = 1                 # 重置引用计数为 1（新分配时被一个序列引用）
+        self.hash = -1                     # 重置哈希值为 -1
+        self.token_ids = []                # 清空 token id 列表
 
 
 class BlockManager:
