@@ -1,5 +1,30 @@
-# nano-vllm 项目目录结构
+# nano-vllm cookbook
+这里主要是讲解nano-vllm从而更好了解推理引擎，主要从三个方面讲解，一个是入口函数的调用逻辑，一个是推理引擎的核心组成，包括引擎的核心组成模块以及算子层实现。
 ## 入口函数调用逻辑
+从入口函数来看首先会调用LLM方法启动引擎，然后调用generate方法。
+``` python
+def main():
+    path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
+    tokenizer = AutoTokenizer.from_pretrained(path)
+    llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
+
+    sampling_params = SamplingParams(temperature=0.6, max_tokens=256)
+    prompts = [
+        "introduce yourself",
+        "list all prime numbers within 100",
+    ]
+    prompts = [
+        tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True
+        )
+        for prompt in prompts
+    ]
+    outputs = llm.generate(prompts, sampling_params)
+```
+
 ### 1首先需要初始化引擎：LLM（）方法
 主要逻辑是：
     1. 根据模型并行数进行多线程操作，（nano-vllm仅支持模型并行）
