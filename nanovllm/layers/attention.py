@@ -9,34 +9,40 @@ from nanovllm.utils.context import get_context
 
 @triton.jit
 def store_kvcache_kernel(
-    key_ptr,
-    key_stride,
-    value_ptr,
-    value_stride,
-    k_cache_ptr,
-    v_cache_ptr,
-    slot_mapping_ptr,
-    D: tl.constexpr,
+    key_ptr,              # key 张量的指针
+    key_stride,           # key 张量第一个维度的跨度（每个 token 的步长）
+    value_ptr,            # value 张量的指针
+    value_stride,         # value 张量第一个维度的跨度
+    k_cache_ptr,          # 全局 k_cache 张量的指针
+    v_cache_ptr,          # 全局 v_cache 张量的指针
+    slot_mapping_ptr,     # slot_mapping 张量的指针（每个 token 写入 KV cache 的物理位置）
+    D: tl.constexpr,      # 每个 token 的 KV 向量长度（num_heads * head_dim）
 ):
-    idx = tl.program_id(0)
-    key_offsets = idx * key_stride + tl.arange(0, D)
-    value_offsets = idx * value_stride + tl.arange(0, D)
-    key = tl.load(key_ptr + key_offsets)
-    value = tl.load(value_ptr + value_offsets)
-    slot = tl.load(slot_mapping_ptr + idx)
-    cache_offsets = slot * D + tl.arange(0, D)
-    tl.store(k_cache_ptr + cache_offsets, key)
-    tl.store(v_cache_ptr + cache_offsets, value)
+    idx = tl.program_id(0)  # 当前线程处理的 token 索引
+    key_offsets = idx * key_stride + tl.arange(0, D)      # 计算当前 token 的 key 数据在 key 张量中的偏移
+    value_offsets = idx * value_stride + tl.arange(0, D)  # 计算当前 token 的 value 数据在 value 张量中的偏移
+    key = tl.load(key_ptr + key_offsets)                  # 加载当前 token 的 key 向量
+    value = tl.load(value_ptr + value_offsets)            # 加载当前 token 的 value 向量
+    slot = tl.load(slot_mapping_ptr + idx)                # 读取当前 token 应写入 KV cache 的 slot 位置
+    cache_offsets = slot * D + tl.arange(0, D)            # 计算当前 token 在全局 KV cache 中的写入偏移
+    tl.store(k_cache_ptr + cache_offsets, key)            # 将 key 向量写入全局 k_cache 的对应 slot
+    tl.store(v_cache_ptr + cache_offsets, value)          # 将 value 向量写入全局 v_cache 的对应 slot
 
 
 def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):
     N, num_heads, head_dim = key.shape
     D = num_heads * head_dim
-    assert key.stride(-1) == 1 and value.stride(-1) == 1
-    assert key.stride(1) == head_dim and value.stride(1) == head_dim
-    assert k_cache.stride(1) == D and v_cache.stride(1) == D
-    assert slot_mapping.numel() == N
-    store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)
+    assert key.stride(-1) == 1 and value.stride(-1) == 1         # 保证最后一维连续
+    assert key.stride(1) == head_dim and value.stride(1) == head_dim  # 保证 head 维度步长正确
+    assert k_cache.stride(1) == D and v_cache.stride(1) == D     # 保证 KV cache 步长正确
+    assert slot_mapping.numel() == N                             # slot_mapping 数量等于 token 数
+    store_kvcache_kernel[(N,)](                                  
+        key, key.stride(0),                                      # 传入 key 张量和步长（GPU本地）
+        value, value.stride(0),                                  # 传入 value 张量和步长（GPU本地）
+        k_cache, v_cache,                                        # 传入全局 KV cache（GPU全局）
+        slot_mapping, D                                          # 传入 slot_mapping 和每个 token 的 KV 向量长度（GPU本地）
+    )
+
 
 
 class Attention(nn.Module):

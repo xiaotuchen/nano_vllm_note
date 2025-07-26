@@ -109,18 +109,24 @@ class BlockManager:
     def may_append(self, seq: Sequence):
         # 处理序列追加 token 时的 block 分配和哈希更新逻辑
         block_table = seq.block_table
-        last_block = self.blocks[block_table[-1]]
+        last_block = self.blocks[block_table[-1]]  # 取当前序列的最后一个 block
+
         if len(seq) % self.block_size == 1:
-            assert last_block.hash != -1
-            block_id = self.free_block_ids[0]
-            self._allocate_block(block_id)
-            block_table.append(block_id)
+            # 情况1：刚刚新开了一个 block，并写入了第一个 token
+            assert last_block.hash != -1  # 上一个 block 必须已经有 hash（已完成）
+            block_id = self.free_block_ids[0]  # 取一个空闲 block
+            self._allocate_block(block_id)     # 分配新 block
+            block_table.append(block_id)       # 加入序列的 block_table
+
         elif len(seq) % self.block_size == 0:
-            assert last_block.hash == -1
-            token_ids = seq.block(seq.num_blocks-1)
-            prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
-            h = self.compute_hash(token_ids, prefix)
-            last_block.update(h, token_ids)
-            self.hash_to_block_id[h] = last_block.block_id
+            # 情况2：刚好填满一个 block，需要计算 hash 并注册到缓存
+            assert last_block.hash == -1       # 当前 block 还没有 hash（未完成）
+            token_ids = seq.block(seq.num_blocks-1)  # 取当前 block 的 token id
+            prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1  # 上一个 block 的 hash
+            h = self.compute_hash(token_ids, prefix)  # 计算 hash
+            last_block.update(h, token_ids)           # 更新 block 的 hash 和内容
+            self.hash_to_block_id[h] = last_block.block_id  # 注册到哈希表
+
         else:
-            assert last_block.hash == -1
+            # 情况3：正在往当前 block 追加 token，还没填满
+            assert last_block.hash == -1  # 当前 block 还没有 hash（未完成）

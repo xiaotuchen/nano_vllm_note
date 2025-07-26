@@ -140,43 +140,54 @@ class ModelRunner:
         return block_tables
 
     def prepare_prefill(self, seqs: list[Sequence]):
-        # 构造prefill阶段的输入
-        input_ids = []
-        positions = []
-        cu_seqlens_q = [0]
-        cu_seqlens_k = [0]
-        max_seqlen_q = 0
-        max_seqlen_k = 0
-        slot_mapping = []
-        block_tables = None
+        # 构造 prefill 阶段的输入张量
+        input_ids = []         # 存放所有待推理的 token id
+        positions = []         # 存放每个 token 的位置信息
+        cu_seqlens_q = [0]     # 累加的 query 序列长度（前缀和），用于高效 batch 处理
+        cu_seqlens_k = [0]     # 累加的 key 序列长度（前缀和），用于高效 batch 处理
+        max_seqlen_q = 0       # 当前 batch 内最大的 query 长度
+        max_seqlen_k = 0       # 当前 batch 内最大的 key 长度
+        slot_mapping = []      # 存放每个 token 在 KV cache 中的物理位置
+        block_tables = None    # block_table 张量，只有 prefix cache 时才用
+
         for seq in seqs:
-            seqlen = len(seq)
+            seqlen = len(seq)  # 当前序列的总长度
+            # 取出本轮需要推理的 token id（未缓存部分）
             input_ids.extend(seq[seq.num_cached_tokens:])
+            # 生成这些 token 的位置信息
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
-            seqlen_q = seqlen - seq.num_cached_tokens
-            seqlen_k = seqlen
-            cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
-            cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
-            max_seqlen_q = max(seqlen_q, max_seqlen_q)
-            max_seqlen_k = max(seqlen_k, max_seqlen_k)
+            # 计算 query 和 key 的长度
+            seqlen_q = seqlen - seq.num_cached_tokens  # 本轮需要推理的 token 数
+            seqlen_k = seqlen                          # 当前序列的总长度
+            cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)  # 更新 query 前缀和
+            cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)  # 更新 key 前缀和
+            max_seqlen_q = max(seqlen_q, max_seqlen_q)        # 更新最大 query 长度
+            max_seqlen_k = max(seqlen_k, max_seqlen_k)        # 更新最大 key 长度
             if not seq.block_table:
-                continue
+                continue  # 如果没有 block_table，跳过后续 slot_mapping 处理
+            # 遍历本轮需要写入 KV cache 的 block
             for i in range(seq.num_cached_blocks, seq.num_blocks):
                 start = seq.block_table[i] * self.block_size
                 if i != seq.num_blocks - 1:
                     end = start + self.block_size
                 else:
-                    end = start + seq.last_block_num_tokens 
-                slot_mapping.extend(list(range(start, end)))
-        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
+                    end = start + seq.last_block_num_tokens  # 最后一个 block 可能不满
+                slot_mapping.extend(list(range(start, end)))  # 记录每个 token 的物理位置
+
+        # 如果有 prefix cache（key 比 query 多），需要准备 block_tables
+        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:
             block_tables = self.prepare_block_tables(seqs)
+
+        # 转为 CUDA 张量并固定内存，提升推理效率
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+
+        # 设置推理上下文，包括 cu_seqlens、slot_mapping、block_tables 等
         set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
-        return input_ids, positions
+        return input_ids, positions  # 返回模型推理所需的 input_ids 和 positions
 
     def prepare_decode(self, seqs: list[Sequence]):
         # 构造decode阶段的输入
