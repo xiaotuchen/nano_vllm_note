@@ -1,5 +1,7 @@
 # nano-vllm cookbook
 这里主要是讲解nano-vllm从而更好了解推理引擎，主要从三个方面讲解，一个是入口函数的调用逻辑，一个是推理引擎的核心组成，包括引擎的核心组成模块以及算子层实现。
+
+在原有的功能上适配了MiniCPM4，并且增加了注册新模型的功能，在nano_vllm/models/cpm4.py和nano_vllm/models/registry.py文件
 ## 入口函数调用逻辑
 从入口函数来看首先会调用LLM方法启动引擎，然后调用generate方法。
 ``` python
