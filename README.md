@@ -230,36 +230,48 @@ nano-vllm/
 - Config：推理配置对象，包含模型路径、并行数、显存利用率等参数。
 
 ---
-3. 初始化流程（__init__）
-1. 参数过滤与配置初始化
+3. 初始化流程（__init__)
+
+3.1 参数过滤与配置初始化
   - 只保留传入参数中属于 Config 的字段，构造 Config 对象。
-2. 多进程环境准备
+
+3.2 多进程环境准备
   - 使用 spawn 方式创建多进程上下文，适配多卡并行。
-3. Tensor Parallel 进程启动
+
+3.3 Tensor Parallel 进程启动
   - 除主进程外，为每个并行卡创建一个 worker 进程（ModelRunner），并通过事件对象实现主从同步。
   - 主进程 rank=0，worker 进程 rank=1~N。
-4. 主进程 ModelRunner 初始化
+
+3.4 主进程 ModelRunner 初始化
   - 主进程自身也创建一个 ModelRunner 实例，负责本地推理。
-5. 分词器加载
+
+3.5 分词器加载
   - 加载 transformers 分词器，并设置终止 token id。
-6. 调度器初始化
+
+3.6 调度器初始化
   - 创建 Scheduler 实例，管理推理任务的调度与资源分配。
-7. 注册退出清理函数
+
+3.7 注册退出清理函数
   - 程序退出时自动清理所有进程和资源。
 
 ---
 4. 主要方法
+
 4.1 exit
 - 清理资源，关闭所有进程和模型 runner，确保进程安全退出。
+
 4.2 add_request
 - 添加推理请求，将 prompt 编码为 token id 并加入调度队列，支持字符串和 token id 两种输入。
+
 4.3 step
 - 执行一步推理，包括调度、模型运行、后处理，返回已完成序列的输出和本轮 token 统计。
-  - 优先waiting队列中的seq进行转移到runing队列，并且对这些request进行prefilling，再一次step中即可完成prefilling
+  - 优先waiting队列中的seq进行转移到runing队列，并且对这些request进行prefilling，一次step中即可完成prefilling
   - 当waiting中没有seq时，则对runing队列中的seq进行decode，在一次step中每个seq仅生成一个token，对于新生成的token需要考虑是否申请新的block进行储存。
 - 支持 prefill 阶段（批量填充）和 decode 阶段（增量生成）的区分与吞吐统计。
+
 4.4 is_finished
 - 判断所有序列是否推理完成（由调度器判断，是否有结束符或者达到最大程度）。
+
 4.5 generate
 - 批量生成接口，支持进度条显示，自动处理多个 prompt 和采样参数。
 - 主循环不断调用 step，直到所有序列完成，期间统计 prefill/decode 吞吐率并实时展示。
@@ -273,8 +285,6 @@ nano-vllm/
 ---
 6. 资源管理与清理
 - 通过 atexit 注册退出清理函数，确保所有进程和资源在程序结束时被正确释放，防止资源泄漏。
-内存管理层级-block_manager.py
-内存管理逻辑总结
 
 ### 内存管理层级-block_manager.py
 #### 内存管理逻辑总结
@@ -286,13 +296,14 @@ nano-vllm/
   - token_ids：当前块存储的 token id 列表
 - 提供 update 和 reset 方法，分别用于更新块内容和重置状态
 2. BlockManager 类
-主要成员
-- block_size：每个 block 能存储的 token 数
-- blocks：所有 Block 对象的列表
-- hash_to_block_id：哈希到 block_id 的映射，用于缓存查找和复用
-- free_block_ids：空闲 block 的 id 队列
-- used_block_ids：已分配 block 的 id 集合
-主要方法
+- 主要成员
+  - block_size：每个 block 能存储的 token 数
+  - blocks：所有 Block 对象的列表
+  - hash_to_block_id：哈希到 block_id 的映射，用于缓存查找和复用
+  - free_block_ids：空闲 block 的 id 队列
+  - used_block_ids：已分配 block 的 id 集合
+- 主要方法
+  
 2.1 分配与回收
 - allocate(seq)：为一个序列分配所需的 block，支持缓存复用
   - 优先查找哈希表是否有可复用的 block，命中则复用，否则分配新 block
@@ -300,6 +311,7 @@ nano-vllm/
 - deallocate(seq)：回收一个序列占用的所有 block
   - 遍历 block_table，将每个 block 的引用计数减 1
   - 如果引用计数为 0，则回收该 block，放回 free_block_ids 队列
+
 2.2 追加 token 时的动态管理
 - can_append(seq)：判断是否可以为序列追加一个 block
   - 当 len(seq) % block_size == 1 时，说明刚新开一个 block，需要有空闲 block 可用
@@ -307,31 +319,46 @@ nano-vllm/
   - 情况1：len(seq) % block_size == 1，新开 block，分配新 block 并加入 block_table
   - 情况2：len(seq) % block_size == 0，刚好填满 block，计算 hash，注册到哈希表
   - 情况3：其它情况，继续往当前 block 追加 token，无需分配新 bloc
-2.3 哈希与复用
 
+2.3 哈希与复用
 - compute_hash(token_ids, prefix)：计算一组 token_ids 的哈希值（可选带前缀），用于缓存查找和复用
-- 每个 block 的内容和前缀 hash 计算出唯一哈希值，作为缓存查找和复用的依据
+- 每个 block 的内容和前缀，通过 hash 计算出唯一哈希值，作为缓存查找和复用的依据
 
 ---
 3. 管理策略总结
 - BlockManager 通过 block 切分、哈希查找、引用计数和空闲队列，实现了高效的 KV cache 显存分配、回收和复用
 - 支持 LLM 推理过程中的动态缓存管理和高吞吐推理
 - 主要目标是节省显存、加速推理、支持缓存复用
-#### KV-cache分配
-- 1在vllm中最小内存管理单元是block，一个block默认是256个token占用的内存，每个block占用的内存计算如下：
+#### model_runner.py allocate_kv_cache() KV-cache分配
+- 在vllm中最小内存管理单元是block，一个block默认是256个token占用的内存，每个block占用的内存计算如下：
 ```
 block_memory=2 * num_hidden_layers * block_size * num_kv_heads * head_dim *torch_dtype_itemsize
 ```
 这里计算的是如果输入一个block，在前向传播中每一层占用的kvcache之和。
-- 2在初始化引擎的过程中，将计算总共能分配的显存：
+- 在初始化引擎的过程中，将计算总共能分配的显存：
 ```
 num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current) // block_bytes
 ```
-基本上可以理解为将gpu内存乘以最大接受使用率减去已经用过的内存得到还可以用的内存，将这个内存除以每个block占用的字节数就可以获得能够分配出多少个block
+其实相当于:
+```
+# peak 历史分配过的显存峰值
+# current 当前分配的显存
+# peak-current = 程序运行中偶尔需要的额外显存
+num_kvcache_blocks = int(total * gpu_memory_utilization - used - (peak - current)) // block_bytes
+```
+基本上可以理解为将gpu内存乘以最大接受使用率减去已经用过的内存得到还可以用的内存，将这个内存除以每个block占用的字节数就可以获得能够分配出多少个block。所以总共分配空间：
+```
+# 分配KV缓存张量，形状为[2, 层数, 块数, 块大小, 头数, 头维度]
+        self.kv_cache = torch.zeros(
+            2, hf_config.num_hidden_layers, config.num_kvcache_blocks,
+            self.block_size, num_kv_heads, hf_config.head_dim
+        )
+```
+
 - 3预先分配每层的kv_cache显存：
 将第2步计算出来的num_kvcache_blocks分配到每一个层的k和v去。每层的k和v所需要的cache内存如下：
 ```
-k_cache_per_layer=num_kvcache_blocks*block_size*num_kv_heads*head_dim
+k_cache_per_layer=num_kvcache_blocks *block_size *num_kv_heads *head_dim
 ```
 
 ### 调度逻辑总结-scheduler.py
@@ -352,14 +379,18 @@ k_cache_per_layer=num_kvcache_blocks*block_size*num_kv_heads*head_dim
 #### 核心方法
 is_finished
 - 判断所有序列是否都已完成（等待和运行队列均为空）。
+
 add
 - 新增一个序列到等待队列。
+
 schedule
 - 调度方法，分为 prefill 和 decode 两个阶段，返回本轮调度的序列列表和是否为 prefill 阶段。
 - prefill 阶段：优先从 waiting 队列调度新序列，分配 KV 块，直到达到最大并发数或 token 数限制或者请求不足。
 - decode 阶段：对 running 队列中的序列做增量生成（每轮每个序列生成一个 token），如 KV 块不足则抢占其他序列资源。
+
 preempt
 - 抢占一个序列，将其状态设为 WAITING 并回收 KV 块，重新加入等待队列。
+
 postprocess
 - 后处理方法，将生成的 token 追加到序列，并判断是否终止（eos 或达到最大 token 数）。
 - 如果终止则回收 KV 块并移出运行队列。
@@ -369,16 +400,17 @@ postprocess
 prefill 阶段  
   - 从 waiting 队列调度新序列，分配 KV 块，加入 running 队列。
   - 达到并发/显存上限或无可调度序列后，进入 decode 阶段。
+
 decode 阶段  
   - 对 running 队列中的序列增量生成 token。
   - 如 KV 块不足，优先抢占 running 队列末尾的序列，回收其资源。
   - 追加 token 时动态分配 block，保证显存利用最大化。
-后处理  
+
+postprocess 后处理  
   - 每轮推理后，将生成的 token 追加到序列。
   - 判断是否遇到终止符（eos）或达到最大 token 数，若是则回收资源并移出运行队列。
 
 ### 模型执行 - ModelRunner.py
-
 #### 1. 主要作用
 - 负责单个分布式进程（或主进程）上的模型加载、KV缓存分配、推理执行、CUDA Graph 捕获、进程间通信等核心功能。
 - 支持分布式 tensor parallel、CUDA Graph 加速、KV cache 动态分配与复用。
@@ -414,7 +446,6 @@ decode 阶段
    - 主进程创建共享内存，子进程连接并进入 loop 循环等待任务。
 
 #### 4. 核心方法详解
-
 ##### 4.1 exit
 - 作用：安全释放所有资源。
 - 实现：
@@ -515,7 +546,6 @@ decode 阶段
   - 保存所有图变量供后续复用。
 
 ### 序列管理 - Sequence.py
-
 #### 1. 主要作用
 - 表示推理过程中的单个序列对象，封装了序列的状态、token管理、block分配、采样参数等信息。
 - 支持序列的动态扩展、缓存管理、状态跟踪和序列化/反序列化。
