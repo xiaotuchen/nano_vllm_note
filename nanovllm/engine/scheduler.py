@@ -1,5 +1,9 @@
 from collections import deque
-
+'''The collections.deque class in Python provides a double-ended queue, 
+which allows efficient appends and pops from both ends of the sequence.
+It supports adding (append) and removing (pop) elements from either the right or left side 
+with these methods: append(), appendleft(), pop(), popleft().
+'''
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence, SequenceStatus
 from nanovllm.engine.block_manager import BlockManager
