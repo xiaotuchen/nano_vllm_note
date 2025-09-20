@@ -3,6 +3,10 @@ import torch
 import torch.distributed as dist
 from multiprocessing.synchronize import Event
 from multiprocessing.shared_memory import SharedMemory
+'''The multiprocessing.shared_memory.SharedMemory class in Python provides a way to 
+create and manage blocks of memory that can be shared between multiple processes directly, 
+without the need for copying data through inter-process communication like pipes or queues.
+'''
 
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence
