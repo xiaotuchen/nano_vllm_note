@@ -34,6 +34,7 @@ def main():
     3. 加载分词器。
     4. 初始化调度器，这里展开将。
 ``` python
+# llm_engine.py
 class LLMEngine:
     """
     LLMEngine类负责管理整个推理流程，包括模型初始化、请求管理、调度、分布式并行、tokenizer处理等。
@@ -77,6 +78,7 @@ class LLMEngine:
 4. 如果不使用eager模式，保存多个不同batch的计算图，用于后面decode减速，基本原理是可以在后面decode阶段直接换保存的计算图中的数据，从而提速，即使用cudagraph
 5. 多进程之间进行同步。
 ``` python
+# model_runner.py
 def __init__(self, config: Config, rank: int, event: Event | list[Event]):
     # 初始化分布式进程组，使用NCCL后端和TCP通信
     dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
@@ -98,9 +100,9 @@ def __init__(self, config: Config, rank: int, event: Event | list[Event]):
     if self.world_size > 1:
         if rank == 0:
             self.shm = SharedMemory(name="nanovllm", create=True, size=2**20)  # 主进程创建共享内存
-            dist.barrier()  # 同步
+            dist.barrier()  # 同步. rank 0 reaches dist.barrier(), it pauses and waits.
         else:
-            dist.barrier()  # 等待主进程
+            dist.barrier()  # 等待主进程 rank i reaches dist.barrier(), it pauses and waits. Once both GPU rank 0 and other rank i have called barrier(), both are released simultaneously to proceed to the next step.
             self.shm = SharedMemory(name="nanovllm")  # 其他进程连接共享内存
             self.loop()  # 子进程进入循环等待任务
 ```
