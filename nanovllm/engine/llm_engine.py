@@ -41,7 +41,7 @@ class LLMEngine:
         # 存储分布式进程和事件
         self.ps = []
         self.events = []
-        # 使用spawn方式创建多进程上下文，逐哟啊是考虑多进程
+        # 使用spawn方式创建多进程上下文 It creates a completely new Python interpreter process. The parent process's Python code is imported fresh in the child process, ensuring a clean fresh start.
         ctx = mp.get_context("spawn")
         # 启动tensor parallel的worker进程（主进程为0号，worker从1开始）
         # tp的多进程管理
