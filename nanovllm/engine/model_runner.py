@@ -96,7 +96,7 @@ class ModelRunner:
         # 调用指定方法
         if self.world_size > 1 and self.rank == 0:
             self.write_shm(method_name, *args)  # 主进程写任务到共享内存
-        method = getattr(self, method_name, None)  # 获取方法
+        method = getattr(self, method_name, None)  # 获取方法 getattr to retrieve the object "self's" attribute "method_name", cannot find then None 
         return method(*args)  # 执行方法
 
     def warmup_model(self):
