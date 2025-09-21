@@ -58,11 +58,11 @@ class Scheduler:
                 break  # 超出限制则停止调度
             num_seqs += 1
             self.block_manager.allocate(seq)  # 分配KV缓存块
-            num_batched_tokens += len(seq) - seq.num_cached_tokens  # 统计本轮新处理的token数，如果某个token在缓存里面就不加入
+            num_batched_tokens += len(seq) - seq.num_cached_tokens  # 统计本轮新处理的token数，已经缓存的token不需要加入
             seq.status = SequenceStatus.RUNNING  # 状态设为运行中
             self.waiting.popleft()  # 从waiting队列移除
             self.running.append(seq)  # 加入running队列
-            scheduled_seqs.append(seq)  # 记录本轮调度的序列
+            scheduled_seqs.append(seq)  # 记录本轮调度的序列，scheduled_seqs没有self.前缀，它只在本轮运行时存在
 
         if scheduled_seqs:
             # 如果有调度的序列，返回并标记为prefill阶段
