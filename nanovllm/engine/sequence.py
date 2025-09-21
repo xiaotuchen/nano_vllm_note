@@ -20,8 +20,8 @@ class Sequence:
         self.status = SequenceStatus.WAITING  # 初始状态为等待
         self.token_ids = copy(token_ids)      # 保存输入的 token id 列表
         self.last_token = token_ids[-1]       # 记录最后一个 token
-        self.num_tokens = len(self.token_ids) # 当前 token 总数
-        self.num_prompt_tokens = len(token_ids) # prompt 部分 token 数
+        self.num_tokens = len(self.token_ids) # 当前 token 总数，len(self.token_ids)是变长的
+        self.num_prompt_tokens = len(token_ids) # prompt 部分 token 数，len(token_ids)对当前这一条序列来说是输入的时候就知道是多长的
         self.num_cached_tokens = 0            # 已缓存的 token 数
         self.block_table = []                 # 记录分配的 block id
         self.temperature = sampling_params.temperature # 采样温度
