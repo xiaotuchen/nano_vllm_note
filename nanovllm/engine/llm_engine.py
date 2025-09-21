@@ -45,7 +45,7 @@ class LLMEngine:
         ctx = mp.get_context("spawn")
         # 启动tensor parallel的worker进程（主进程为0号，worker从1开始）
         # tp的多进程管理
-        for i in range(1, config.tensor_parallel_size):
+        for i in range(1, config.tensor_parallel_size): # only for worker
             event = ctx.Event()  # 创建一个进程间同步事件，用于主进程和worker进程之间的通信与同步
             process = ctx.Process(target=ModelRunner, args=(config, i, event))  # 创建一个新的worker进程，目标函数是ModelRunner，参数包括配置、进程编号i、同步事件
             process.start()  # 启动该worker进程，让其在后台运行
@@ -112,7 +112,7 @@ class LLMEngine:
         """
         if use_tqdm:
             pbar = tqdm(total=len(prompts), desc="Generating", dynamic_ncols=True)
-        # 如果sampling_params不是列表，则扩展为与prompts等长的列表
+        # 如果sampling_params不是列表，则扩展为与prompts等长的列表，正常来说每条prompt有一套自己的sampling_params
         if not isinstance(sampling_params, list):
             sampling_params = [sampling_params] * len(prompts)
         # 添加所有请求到调度器
