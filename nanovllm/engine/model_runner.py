@@ -1,4 +1,9 @@
 import pickle
+'''serializes a Python object into a bytes object, allowing the object to be stored in memory, 
+sent over a network, or saved for later reconstruction without writing directly to a file. 
+pickle.dump(), which writes directly to a file object, 
+pickle.dumps() is used when file I/O isn’t wanted, such as for database or network operations.
+'''
 import torch
 import torch.distributed as dist
 from multiprocessing.synchronize import Event
@@ -47,7 +52,7 @@ class ModelRunner:
         if self.world_size > 1:
             if rank == 0:
                 self.shm = SharedMemory(name="nanovllm", create=True, size=2**20)  # 主进程创建共享内存
-                dist.barrier()  # 同步
+                dist.barrier()  # 等待其它进程，同步
             else:
                 dist.barrier()  # 等待主进程
                 self.shm = SharedMemory(name="nanovllm")  # 其他进程连接共享内存
@@ -66,7 +71,7 @@ class ModelRunner:
         dist.destroy_process_group()  # 销毁分布式进程组
 
     def loop(self):
-        # 子进程循环等待主进程任务
+        # 子进程循环读取共享内存，等待主进程任务
         while True:
             method_name, args = self.read_shm()  # 从共享内存读取任务
             self.call(method_name, *args)  # 执行任务
@@ -79,18 +84,18 @@ class ModelRunner:
         self.event.wait()  # 等待事件触发
         n = int.from_bytes(self.shm.buf[0:4], "little")  # 读取数据长度
         method_name, *args = pickle.loads(self.shm.buf[4:n+4])  # 反序列化任务
-        self.event.clear()  # 清除事件
+        self.event.clear()  # 清除事件 Now event.is_set() is False, causing threads that call event.wait() to block until event.set() is called again.
         return method_name, args
 
     def write_shm(self, method_name, *args):
         # 向共享内存写入任务（主进程用）
         assert self.world_size > 1 and not self.rank
-        data = pickle.dumps([method_name, *args])  # 序列化任务
+        data = pickle.dumps([method_name, *args])  # 序列化任务 
         n = len(data)
         self.shm.buf[0:4] = n.to_bytes(4, "little")  # 写入长度
         self.shm.buf[4:n+4] = data  # 写入数据
         for event in self.event:
-            event.set()  # 通知所有子进程
+            event.set()  # 通知所有子进程 Now event.is_set() is True, awakening all threads waiting for that event object.
 
     def call(self, method_name, *args):
         # 调用指定方法
