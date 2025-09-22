@@ -30,9 +30,11 @@ def store_kvcache_kernel(
 
 
 def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):
+    '''k和v就是要存储的值，k_cache v_cache就是目的地，context.slot_mapping就是存放的索引，这个值是在prepare_Prefill或者prepare_decode中设置好的。
+    '''
     N, num_heads, head_dim = key.shape
     D = num_heads * head_dim
-    assert key.stride(-1) == 1 and value.stride(-1) == 1         # 保证最后一维连续
+    assert key.stride(-1) == 1 and value.stride(-1) == 1         # 保证最后一维连续,最后一维的步长是1,indicate how far to move in memory to obtain the next element along that axis
     assert key.stride(1) == head_dim and value.stride(1) == head_dim  # 保证 head 维度步长正确
     assert k_cache.stride(1) == D and v_cache.stride(1) == D     # 保证 KV cache 步长正确
     assert slot_mapping.numel() == N                             # slot_mapping 数量等于 token 数
@@ -43,7 +45,35 @@ def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor,
         slot_mapping, D                                          # 传入 slot_mapping 和每个 token 的 KV 向量长度（GPU本地）
     )
 
+'''---for notes only start---
+def store_kvcache_simplified(
+    key: torch.Tensor,
+    value: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    slot_mapping: torch.Tensor):
+    
+    """store_kvcache（）实际的实现逻辑：
+    - key：当前步计算的 Key 张量，形状为 ［N，num_heads, head_dim]
+    - value： 当前步计算的 Value 张量，形状为 ［N，num_heads, head_dim]
+    - k_cache: Key 缓存，形状为 ［max_blocks，num_heads, head_dim]
+    - v_cache: Value 缓存，形状为［max_blocks，num_heads, head_dim]
+    - slot_mapping：指示每个token 应该存储在缓存中的哪个位置，形状为[N]
+    """
+    N, num_heads, head_dim = key.shape
 
+    #展平head 和head_dim 维度
+    flat_key =key.view(N,-1) # [N,num_heads* head_dim]
+    flat_value = value.view(N, -1) # [N,num_heads* head_dim]
+
+    ＃根据slot_mapping将数据存入缓存
+    for i in range(N):
+        slot = slot_mapping[il.item()
+        k_cache[slot] = flat_key[i]
+        v_cache[slot] = flat_value[i]
+
+---for notes only end---
+'''
 
 class Attention(nn.Module):
 
