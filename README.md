@@ -573,6 +573,16 @@ postprocess 后处理
     - 用 torch.cuda.graph 捕获推理过程。
     - 保存图对象和图池。
   - 保存所有图变量供后续复用。
+  - 两个关键参数：
+    - max_bs = min（self.config.max_num_seqs, 512） 最大不超过512，限制单批序列个数，更大也无意义，也会需要捕获更多图
+    - max_num_blocks 是单条请求最大tokens长度向上整除block_size，相当于拉满预先模拟计算量
+
+- cuda graph 通过减少overlap kerrjel launch的时间实现加速，本质就是预先跑过一遍知道会有哪些kernel launch，后续再有计算只需要回放执行就可以加速
+  - 一般会有enforce_eager变量用来控制是否启用cuda graph
+  - cuda graph会预先跑多个batch长度的版本，实际执行时，向上找到预先准备好的最接近的batch，进行回放
+  - cuda graph限制所有内存（显存）地址都必须预跑时的（回放限制），所以需要预先开好内存，后续回放前先把值放到对应内存中。包括gpu计算的输入和输出
+  - cuda graph用于decode计算中，decode行为更固定，方便使用cuda graph，prefill计算密集，而且continue batch变长序列更难处理，收益不高
+  - 为什么要倒着捕获：首先计算量肯定是越靠后越高，需要显存也越多，使用变量self.graph_poo/可以第一次跑的时候捕获，后面再跑就可以复用显存，所以这里在self.graph_pool初始化好后后面就直接传进去复用了，提升效率
 
 ### 序列管理 - Sequence.py
 #### 1. 主要作用
