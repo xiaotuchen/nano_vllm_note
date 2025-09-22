@@ -27,7 +27,7 @@ def main():
     outputs = llm.generate(prompts, sampling_params)
 ```
 
-### 1首先需要初始化引擎：LLM（）方法
+### 首先需要初始化引擎：LLM（）方法
 主要逻辑是：
     1. 根据模型并行数进行多线程操作，（nano-vllm仅支持模型并行）
     2. 启动模型推理器，这里需要在后文中详细展开
@@ -329,13 +329,39 @@ nano-vllm/
 - BlockManager 通过 block 切分、哈希查找、引用计数和空闲队列，实现了高效的 KV cache 显存分配、回收和复用
 - 支持 LLM 推理过程中的动态缓存管理和高吞吐推理
 - 主要目标是节省显存、加速推理、支持缓存复用
-#### model_runner.py allocate_kv_cache() KV-cache分配
-- 在vllm中最小内存管理单元是block，一个block默认是256个token占用的内存，每个block占用的内存计算如下：
+#### KV-cache分配 
+model_runner.py 中的 allocate_kv_cache() ，
+每个gpu都会运行这个函数（tp）在运行allocate_ky_cache之前，已经预先warmup model过，所以已经有过预先的GPU内存占用peak和current。
+
+内存参数：
+* free是gpu当前可以用的内存
+* total是gpu硬件总数，不变的
+* peak可以理解为从程序开始调用torch内存api时，当前进程占用的最大值
+* current是当前进程占用的内存
+
+num_kv_heads: 是因为tp，每个gpu只需要计算其中一部分qkv
+
+block_bytes: 
+* 2 表示k和v
+* num_hidden_layers 代表attention的总层数 例awen3-0.6B是28层
+* block_size 是page attention定义的一个block放多少个token，例如256
+* num_kv_heads如上
+* head_dim 是每个头对应的隐含层的维度
+* torch_dtype.itemsize 是类型的具体字节数，例如fp8就是1，bf16就是2
+ 
+step1. 在vllm中最小内存管理单元是block，一个block默认是256个token占用的内存，每个block占用的内存计算如下：
 ```
-block_memory=2 * num_hidden_layers * block_size * num_kv_heads * head_dim *torch_dtype_itemsize
+block_bytes = 2 * num_hidden_layers * block_size * num_kv_heads * head_dim *torch_dtype_itemsize
 ```
 这里计算的是如果输入一个block，在前向传播中每一层占用的kvcache之和。
-- 在初始化引擎的过程中，将计算总共能分配的显存：
+
+step2. 在初始化引擎的过程中，将计算总共能分配的显存：
+
+num_kvcache_blocks:
+* 总GPU量 * GPU打算用多少（例如0.8）-已经被占用的（可能是其它程序占的）-（peak-current）
+* peak-current 表示在之前的一波计算中，被计算占用的显存，减掉这个可以更加严谨和冗余
+* 再除上block_bytes就是最终的kvcache的block总数
+
 ```
 num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current) // block_bytes
 ```
@@ -346,7 +372,9 @@ num_kvcache_blocks = int(total * gpu_memory_utilization - used - peak + current)
 # peak-current = 程序运行中偶尔需要的额外显存
 num_kvcache_blocks = int(total * gpu_memory_utilization - used - (peak - current)) // block_bytes
 ```
-基本上可以理解为将gpu内存乘以最大接受使用率减去已经用过的内存得到还可以用的内存，将这个内存除以每个block占用的字节数就可以获得能够分配出多少个block。所以总共分配空间：
+基本上可以理解为将gpu内存乘以最大接受使用率减去已经用过的内存得到还可以用的内存，将这个内存除以每个block占用的字节数就可以获得能够分配出多少个block。
+
+kv_cache：按照之前的逻辑，进行实际分配和维度划分，所以总共分配空间：
 ```
 # 分配KV缓存张量，形状为[2, 层数, 块数, 块大小, 头数, 头维度]
         self.kv_cache = torch.zeros(
@@ -355,10 +383,11 @@ num_kvcache_blocks = int(total * gpu_memory_utilization - used - (peak - current
         )
 ```
 
-- 3预先分配每层的kv_cache显存：
-将第2步计算出来的num_kvcache_blocks分配到每一个层的k和v去。每层的k和v所需要的cache内存如下：
+step3. 预先分配每层的kv_cache显存：
+
+把step2步计算出来的num_kvcache_blocks分配到每一个层的k和v去。每层的k和v所需要的cache内存如下
 ```
-k_cache_per_layer=num_kvcache_blocks *block_size *num_kv_heads *head_dim
+k_cache_per_layer = num_kvcache_blocks *block_size *num_kv_heads *head_dim
 ```
 
 ### 调度逻辑总结-scheduler.py
