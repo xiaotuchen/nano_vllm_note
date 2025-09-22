@@ -134,7 +134,8 @@ class ModelRunner:
             self.block_size, num_kv_heads, hf_config.head_dim
         )
         layer_id = 0
-        # 遍历模型的所有子模块，将分配好的KV缓存绑定到每一层
+        # 遍历模型的所有子模块，将分配好的KV缓存绑定到每一层。
+        # 在这里会不断遍历具体的算子，实际上成员变量有k_cache和v_cache只有Attention（），所以最终遍历后只有这里的参数会被引用映射到分配好的内存位置
         for module in self.model.modules():
             if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
                 module.k_cache = self.kv_cache[0, layer_id]  # 绑定K缓存
