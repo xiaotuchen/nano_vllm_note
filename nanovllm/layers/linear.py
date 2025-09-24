@@ -60,7 +60,7 @@ class ColumnParallelLinear(LinearBase):
         output_size: int,
         bias: bool = False,
     ):
-        super().__init__(input_size, output_size, 0)
+        super().__init__(input_size, output_size, 0) # because pytorch store matrix by col, so 0 means col dimension
         self.input_size_per_partition = input_size
         self.output_size_per_partition = divide(output_size, self.tp_size)
 
@@ -94,6 +94,16 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
         self.output_sizes = output_sizes
         super().__init__(input_size, sum(output_sizes), bias=bias)
 
+'''recall that:
+    packed_modules_mapping = {
+        "q_proj": ("qkv_proj", "q"),
+        "k_proj": ("qkv_proj", "k"),
+        "v_proj": ("qkv_proj", "v"),
+        "gate_proj": ("gate_up_proj", 0), #loaded_shard_id is 0
+        "up_proj": ("gate_up_proj", 1), #loaded_shard_id is 1
+    }
+''' 
+    
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: int):
         param_data = param.data
         shard_offset = sum(self.output_sizes[:loaded_shard_id]) // self.tp_size
@@ -148,7 +158,7 @@ class RowParallelLinear(LinearBase):
         output_size: int,
         bias: bool = False,
     ):
-        super().__init__(input_size, output_size, 1)
+        super().__init__(input_size, output_size, 1) # because pytorch store matrix by col, so 1 means row dimension
         self.input_size_per_partition = divide(input_size, self.tp_size)
         self.output_size_per_partition = output_size
 
