@@ -18,7 +18,7 @@ class RMSNorm(nn.Module):
     def rms_forward(
         self,
         x: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor: # no residual return one output
         orig_dtype = x.dtype
         x = x.to(torch.float32)
         var = x.pow(2).mean(dim=-1, keepdim=True)
@@ -31,7 +31,7 @@ class RMSNorm(nn.Module):
         self,
         x: torch.Tensor,
         residual: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]: # add residual therefore return two outputs
         orig_dtype = x.dtype
         x = x.to(torch.float32).add_(residual.to(torch.float32))
         residual = x.to(orig_dtype)
