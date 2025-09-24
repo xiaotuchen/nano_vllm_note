@@ -37,7 +37,7 @@ class VocabParallelEmbedding(nn.Module):
             x = mask * (x - self.vocab_start_idx)  # 将本卡负责的 token 索引映射到本地 embedding 表
         y = F.embedding(x, self.weight)  # 查表得到 embedding
         if self.tp_size > 1:
-            y = mask.unsqueeze(1) * y  # 非本卡负责的 token embedding 置零
+            y = mask.unsqueeze(1) * y  # 非本卡负责的 token embedding 置零 mask.unsqueeze(1) adds a new axis at position 1,ie shape [n] to [n,1], mask.unsqueeze(1) * y element wise multiply.
             dist.all_reduce(y)  # 多卡间 embedding 求和，聚合所有卡的结果
         return y  # 返回最终 embedding
 
@@ -60,10 +60,10 @@ class ParallelLMHead(VocabParallelEmbedding):
         if context.is_prefill:
             last_indices = context.cu_seqlens_q[1:] - 1  # 取每个序列最后一个 token 的索引
             x = x[last_indices].contiguous()  # 只取最后一个 token 的输出
-        logits = F.linear(x, self.weight, self.bias)  # 线性变换得到 logits
+        logits = F.linear(x, self.weight, self.bias)  # 线性变换得到 logits. F.linear() atually does x* self_weight_transposed, so x[n,1024]*self_weight_transposed[1024,151936] ->[n,151936]
         if self.tp_size > 1:
             # 多卡时，将各卡 logits 收集到 rank 0 并拼接
-            all_logits = [torch.empty_like(logits) for _ in range(self.tp_size)] if self.tp_rank == 0 else None
-            dist.gather(logits, all_logits, 0)
-            logits = torch.cat(all_logits, -1) if self.tp_rank == 0 else None
+            all_logits = [torch.empty_like(logits) for _ in range(self.tp_size)] if self.tp_rank == 0 else None # torch.empty_like(a) returns a new tensor with the same size, data type, and device as the input tensor a, but with uninitialized values.
+            dist.gather(logits, all_logits, 0) # rank0 receives a list of tensors 
+            logits = torch.cat(all_logits, -1) if self.tp_rank == 0 else None # join all tensors in all_logits along their last dimension. All tensors must have the same shape except for the last dimension.
         return logits  # 返回最终 logits
