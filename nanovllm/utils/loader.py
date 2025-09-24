@@ -34,7 +34,8 @@ def load_model(model: nn.Module, path: str):
                         weight_loader = getattr(param, "weight_loader")
                         weight_loader(param, f.get_tensor(weight_name), shard_id)
                         break
-                else:
+                else: # lm_head.weight, model.embed_tokens.weight, input_layernorm.weight, down_proj.weight, and
+                    # post_attention_layernorm.weight, will use their own weight_loader() or default_weight_loader()  
                     param = model.get_parameter(weight_name)
                     weight_loader = getattr(param, "weight_loader", default_weight_loader)
                     weight_loader(param, f.get_tensor(weight_name))
