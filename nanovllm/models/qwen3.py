@@ -146,7 +146,7 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if residual is None:
+        if residual is None: # at start no residual 
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
         else:
@@ -174,11 +174,11 @@ class Qwen3Model(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
-        residual = None
+        residual = None 
         for layer in self.layers:
             hidden_states, residual = layer(positions, hidden_states, residual)
-        hidden_states, _ = self.norm(hidden_states, residual)
-        return hidden_states
+        hidden_states, _ = self.norm(hidden_states, residual) # final RMSNorm outside the layers
+        return hidden_states # the last Linear output will be compute in Qwen3ForCausalLM compute_logits() 
 
 
 class Qwen3ForCausalLM(nn.Module):
