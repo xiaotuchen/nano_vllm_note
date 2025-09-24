@@ -86,7 +86,12 @@ class Qwen3Attention(nn.Module):
 
 
 class Qwen3MLP(nn.Module):
-
+''' 
+gate and up_proj can be parallel compute, normally they are same shape, therefore they can be combined into gate_up_proj, 
+each gpu rank has col blocks of gate & up_proj, each gpu does its compute of silu(gate_up_proj) = col(result_phase1), 
+then split the down_proj by row and dist to different gpu rank, 
+each gpu does its own col(result_phase1)*row(down_proj), then sum results from all ranks to get final result. 
+'''
     def __init__(
         self,
         hidden_size: int,
