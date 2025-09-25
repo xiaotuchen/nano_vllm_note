@@ -68,7 +68,7 @@ def store_kvcache_simplified(
 
     ＃根据slot_mapping将数据存入缓存
     for i in range(N):
-        slot = slot_mapping[il.item()
+        slot = slot_mapping[i].item()
         k_cache[slot] = flat_key[i]
         v_cache[slot] = flat_value[i]
 
