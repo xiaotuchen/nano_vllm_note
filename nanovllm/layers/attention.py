@@ -98,8 +98,8 @@ class Attention(nn.Module):
         v = v.view(-1, self.num_kv_heads, self.head_dim)
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
-        if k_cache.numel() and v_cache.numel():
-            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
+        if k_cache.numel() and v_cache.numel(): # numel() returns total number of elements in the tensor, If tensor is empty, returns 0.
+            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping) # just warmup_model(), k_cache and v_cache still =torch.tensor([]), so will not store_kvcache() for warmup_model() 
         if context.is_prefill:
             if context.block_tables is not None:    # prefix cache
                 k, v = k_cache, v_cache
