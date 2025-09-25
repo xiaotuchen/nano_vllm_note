@@ -134,20 +134,20 @@ class QKVParallelLinear(ColumnParallelLinear):
         super().__init__(input_size, output_size, bias)
 
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor, loaded_shard_id: str):
-        param_data = param.data
+        param_data = param.data 
         assert loaded_shard_id in ["q", "k", "v"]
         if loaded_shard_id == "q":
-            shard_size = self.num_heads * self.head_size
+            shard_size = self.num_heads * self.head_size # for qwen3_0.6b it is 16 * 128
             shard_offset = 0
         elif loaded_shard_id == "k":
-            shard_size = self.num_kv_heads * self.head_size
+            shard_size = self.num_kv_heads * self.head_size # for qwen3_0.6b it is 8 * 128
             shard_offset = self.num_heads * self.head_size
         else:
             shard_size = self.num_kv_heads * self.head_size
             shard_offset = self.num_heads * self.head_size + self.num_kv_heads * self.head_size
-        param_data = param_data.narrow(self.tp_dim, shard_offset, shard_size)
-        loaded_weight = loaded_weight.chunk(self.tp_size, self.tp_dim)[self.tp_rank]
-        param_data.copy_(loaded_weight)
+        param_data = param_data.narrow(self.tp_dim, shard_offset, shard_size) # 实际存的是矩阵的转置，所以在 0 方向切（tp_dim=0），也就是横切
+        loaded_weight = loaded_weight.chunk(self.tp_size, self.tp_dim)[self.tp_rank] # split loaded_weight into tp_size number of chunks along tp_dim dimension, then selects the chunk indexed by tp_rank 
+        param_data.copy_(loaded_weight) # replace param_data using loaded_weight
 
 
 class RowParallelLinear(LinearBase):
