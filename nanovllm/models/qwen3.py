@@ -71,16 +71,16 @@ class Qwen3Attention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
-        qkv = self.qkv_proj(hidden_states)
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q_by_head = q.view(-1, self.num_heads, self.head_dim)
-        q_by_head = self.q_norm(q_by_head)
-        q = q_by_head.view(q.shape)
-        k_by_head = k.view(-1, self.num_kv_heads, self.head_dim)
+        qkv = self.qkv_proj(hidden_states) # after this, q/k/v stored in col-major
+        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1) # q.shape=[batchSize,2048] k.shape=[batchSize,1024]
+        q_by_head = q.view(-1, self.num_heads, self.head_dim) # q.shape=[batchSize,16,128] the shape is for easy RMSNorm in next step 
+        q_by_head = self.q_norm(q_by_head) #RMSNorm q
+        q = q_by_head.view(q.shape) # q.shape=[batchSize,2048]
+        k_by_head = k.view(-1, self.num_kv_heads, self.head_dim) # k.shape=[batchSize,8,128]
         k_by_head = self.k_norm(k_by_head)
         k = k_by_head.view(k.shape)
-        q, k = self.rotary_emb(positions, q, k)
-        o = self.attn(q, k, v)
+        q, k = self.rotary_emb(positions, q, k) # will not change q/k dimension
+        o = self.attn(q, k, v) # calculate Attention (flash attention)
         output = self.o_proj(o)
         return output
 
