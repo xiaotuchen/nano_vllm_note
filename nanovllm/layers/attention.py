@@ -19,7 +19,7 @@ def store_kvcache_kernel(
     D: tl.constexpr,      # 每个 token 的 KV 向量长度（num_heads * head_dim）
 ):
     idx = tl.program_id(0)  # 当前线程处理的 token 索引
-    key_offsets = idx * key_stride + tl.arange(0, D)      # 计算当前 token 的 key 数据在 key 张量中的偏移
+    key_offsets = idx * key_stride + tl.arange(0, D)      # 计算当前 token 的 key 数据在 key 张量中的偏移 tl.arange(0, D) 有D elements，所以这个 key_offsets的计算是 vectorized operation
     value_offsets = idx * value_stride + tl.arange(0, D)  # 计算当前 token 的 value 数据在 value 张量中的偏移
     key = tl.load(key_ptr + key_offsets)                  # 加载当前 token 的 key 向量
     value = tl.load(value_ptr + value_offsets)            # 加载当前 token 的 value 向量
@@ -38,8 +38,8 @@ def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor,
     assert key.stride(1) == head_dim and value.stride(1) == head_dim  # 保证 head 维度步长正确
     assert k_cache.stride(1) == D and v_cache.stride(1) == D     # 保证 KV cache 步长正确
     assert slot_mapping.numel() == N                             # slot_mapping 数量等于 token 数
-    store_kvcache_kernel[(N,)](                                  
-        key, key.stride(0),                                      # 传入 key 张量和步长（GPU本地）
+    store_kvcache_kernel[(N,)](                                  # N 个线程，每个处理一个token
+        key, key.stride(0),                                      # 传入 key 张量和步长（GPU本地）key.stride(0)= num_heads * head_dim
         value, value.stride(0),                                  # 传入 value 张量和步长（GPU本地）
         k_cache, v_cache,                                        # 传入全局 KV cache（GPU全局）
         slot_mapping, D                                          # 传入 slot_mapping 和每个 token 的 KV 向量长度（GPU本地）
