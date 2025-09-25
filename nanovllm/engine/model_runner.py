@@ -108,10 +108,10 @@ class ModelRunner:
         # 预热模型，减少首次推理延迟
         torch.cuda.empty_cache()           # 清空未使用的CUDA显存缓存，释放GPU内存
         torch.cuda.reset_peak_memory_stats() # 重置CUDA的显存峰值统计，便于后续准确监控显存使用峰值
-        max_num_batched_tokens, max_model_len = self.config.max_num_batched_tokens, self.config.max_model_len
-        num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
-        seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]  # 构造填充序列
-        self.run(seqs, True)  # 运行一次prefill
+        max_num_batched_tokens, max_model_len = self.config.max_num_batched_tokens, self.config.max_model_len # for qwen3_0.6b these are 16384, 4096 
+        num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs) # for qwen3_0.6b these are min(16384/4096=4,512) 这保证把batch打满的同时，不超过max_num_seqs
+        seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]  # 构造填充序列,所有元素都是 0
+        self.run(seqs, True)  # True 运行一次prefill
         torch.cuda.empty_cache()
 
     def allocate_kv_cache(self):
@@ -122,7 +122,7 @@ class ModelRunner:
         used = total - free  # 实际已用显存
         peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]  # 历史分配过的显存峰值
         current = torch.cuda.memory_stats()["allocated_bytes.all.current"]  # 当前分配的显存
-        num_kv_heads = hf_config.num_key_value_heads // self.world_size  # 每个进程分到的KV头数，用于TP并行
+        num_kv_heads = hf_config.num_key_value_heads // self.world_size  # 每个gpu分到的KV头数，用于TP并行
         # 计算每个KV缓存块的字节数（2表示k和v，层数*块数*块大小*头数*每头维度*数据类型字节数）
         block_bytes = 2 * hf_config.num_hidden_layers * self.block_size * num_kv_heads * hf_config.head_dim * hf_config.torch_dtype.itemsize
         # 计算可用的KV缓存块数量（考虑显存利用率、已用、峰值、当前分配等）
@@ -162,9 +162,9 @@ class ModelRunner:
 
         for seq in seqs:
             seqlen = len(seq)  # 当前序列的总长度
-            # 取出本轮需要推理的 token id（未缓存部分）
-            input_ids.extend(seq[seq.num_cached_tokens:])
-            # 生成这些 token 的位置信息
+            # 取出本轮需要推理的 token id（未缓存部分），不用重复之前算过且缓存的
+            input_ids.extend(seq[seq.num_cached_tokens:]) # extend() for adding token List, note in decode use append() for adding one token
+            # 生成这些 token 的位置信息，跳过之前算过且缓存的位置
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
             # 计算 query 和 key 的长度
             seqlen_q = seqlen - seq.num_cached_tokens  # 本轮需要推理的 token 数
