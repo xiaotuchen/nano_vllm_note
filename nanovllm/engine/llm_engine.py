@@ -11,21 +11,6 @@ from nanovllm.engine.sequence import Sequence
 from nanovllm.engine.scheduler import Scheduler
 from nanovllm.engine.model_runner import ModelRunner
 
-
-import atexit
-from dataclasses import fields
-from time import perf_counter
-from tqdm.auto import tqdm
-from transformers import AutoTokenizer
-import torch.multiprocessing as mp
-
-from nanovllm.config import Config
-from nanovllm.sampling_params import SamplingParams
-from nanovllm.engine.sequence import Sequence
-from nanovllm.engine.scheduler import Scheduler
-from nanovllm.engine.model_runner import ModelRunner
-
-
 class LLMEngine:
     """
     LLMEngine类负责管理整个推理流程，包括模型初始化、请求管理、调度、分布式并行、tokenizer处理等。
@@ -51,7 +36,7 @@ class LLMEngine:
             process.start()  # 启动该worker进程，让其在后台运行
             self.ps.append(process)  # 将进程对象保存到进程列表，便于后续管理和回收
             self.events.append(event)  # 将事件对象保存到事件列表，便于主进程与各worker通信
-        # 主进程的ModelRunner实例
+        # 主进程的ModelRunner实例，pass in workers' events to 主进程
         self.model_runner = ModelRunner(config, 0, self.events)
         # 加载分词器
         self.tokenizer = AutoTokenizer.from_pretrained(config.model, use_fast=True)
