@@ -92,17 +92,17 @@ class ModelRunner:
         assert self.world_size > 1 and not self.rank
         data = pickle.dumps([method_name, *args])  # 序列化任务 
         n = len(data)
-        self.shm.buf[0:4] = n.to_bytes(4, "little")  # 写入长度
-        self.shm.buf[4:n+4] = data  # 写入数据
-        for event in self.event:
+        self.shm.buf[0:4] = n.to_bytes(4, "little")  # 写入长度，用4个字节存储，小端模式
+        self.shm.buf[4:n+4] = data  # 写入真正的参数/数据等等
+        for event in self.event: # 主进程 self.event 是个 list of events
             event.set()  # 通知所有子进程 Now event.is_set() is True, awakening all threads waiting for that event object.
 
-    def call(self, method_name, *args):
+    def call(self, method_name, *args): # method_name as the action, args as arguments. 
         # 调用指定方法
         if self.world_size > 1 and self.rank == 0:
             self.write_shm(method_name, *args)  # 主进程写任务到共享内存
         method = getattr(self, method_name, None)  # 获取方法 getattr to retrieve the object "self's" attribute "method_name", cannot find then None 
-        return method(*args)  # 执行方法
+        return method(*args)  # 执行方法 Refer to llm_engine.py->step() method_name=run args=(seqs, is_prefill)
 
     def warmup_model(self):
         # 预热模型，减少首次推理延迟
