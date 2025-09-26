@@ -237,20 +237,20 @@ class ModelRunner:
             # 否则，使用 CUDA Graphs 加速 decode 阶段
             bs = input_ids.size(0)  # 当前 batch size
             context = get_context()  # 获取当前推理上下文
-            # 选择合适 batch size 的 CUDA Graph
+            # 选择合适 batch size 的 CUDA Graph，比如bs=3，那么x就是4，向上取最接近bs的记录
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
             graph_vars = self.graph_vars  # 获取 CUDA Graph 相关变量
             # 清零所有输入变量（除了 outputs）
             for k, v in graph_vars.items():
                 if k != "outputs":
                     v.zero_()
-            # 将本次推理的输入数据写入 CUDA Graph 变量
+            # 将本次推理的输入数据写入 CUDA Graph 变量，只需要写入必要的大小，也就是[:bs]
             graph_vars["input_ids"][:bs] = input_ids
             graph_vars["positions"][:bs] = positions
             graph_vars["slot_mapping"][:bs] = context.slot_mapping
             graph_vars["context_lens"][:bs] = context.context_lens
             graph_vars["block_tables"][:bs, :context.block_tables.size(1)] = context.block_tables
-            # 复用 CUDA Graph 进行推理
+            # 复用 CUDA Graph 进行推理 replay() method launches the recorded sequence of operations, bypassing the Python and CPU overhead involved in setting up each CUDA kernel launch. 
             graph.replay()
             # 返回本次推理的 logits
             return self.model.compute_logits(graph_vars["outputs"][:bs])
