@@ -26,7 +26,7 @@ def load_model(model: nn.Module, path: str):
         with safe_open(file, "pt", "cpu") as f:
             for weight_name in f.keys():
                 for k in packed_modules_mapping:
-                    # print(f"{weight_name}, {f.get_tensor(weight_name).shape}") #to print all param with its shape
+                    # print(f"{weight_name}, {f.get_tensor(weight_name).shape}") # print all param with its shape (better use below modified "main" function to print, not this)
                     if k in weight_name:
                         v, shard_id = packed_modules_mapping[k] # ie. when k=q_proj, its v=qkv_proj shard_id=q
                         param_name = weight_name.replace(k, v) # ie. inside weight_name, when found q_proj, replace it with qkv_proj
@@ -39,3 +39,17 @@ def load_model(model: nn.Module, path: str):
                     param = model.get_parameter(weight_name)
                     weight_loader = getattr(param, "weight_loader", default_weight_loader)
                     weight_loader(param, f.get_tensor(weight_name))
+
+# below are just to print all param with its shape
+# in cmd, run "python loader --model-path" to print 
+def print_model(path: str):
+    for file in glob(os.path.join(path. "*.safetensors")):
+        with safe_open(file, "pt", "cpu") as f:
+            for weight_name in f.keys():
+                print(f"{weight_name} {f.get_tensor(weight_name).shape}")
+                
+if __name__== "__main__":
+    import argparse
+    
+    argparse = argparse.ArgumentParser(description="nano vllm")
+    argparse.add_argument("--model-path", type=str, default="/mymodel/Qwen/Qwen3-0.6B")
