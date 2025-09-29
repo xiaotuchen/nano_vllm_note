@@ -931,12 +931,18 @@ class Qwen3Attention(nn.Module):
         return output
 ```
 ### qwen3-mlp
-qwen3的mlp层一共有三个投影矩阵，$$W_{gate}，W_{up}，W_{down}$$,计算流程如下：
-$$g, u = x W_{gate}^T，x W_{up}^T$$
-$$y = \mathrm{SiLU}(g) \odot u$$
-$$z = y W_{down}^T$$
-nano_vllm的代码实现是将$$W_{gate}，W_{up}$$合并在一起做列并行，即
-$$[g, u] = x W_{gu}^T$$
+qwen3的mlp层一共有三个投影矩阵， $W_{gate}$ ， $W_{up}$ ， $W_{down}$ ，计算流程如下： 
+
+$$ g = x W_{gate}^T，u = x W_{up}^T $$ 
+
+$$ y = \mathrm{SiLU}(g) \odot u $$ 
+
+$$ z = y W_{down}^T $$ 
+
+nano_vllm的代码实现是将 $W_{gate}$ ， $W_{up}$ 合并在一起做列并行，即
+
+$$ [g, u] = x W_{gu}^T $$  
+
 并且将SiLU函数隐藏到了SiluAndMul()函数中
 ```python
 class Qwen3MLP(nn.Module):
