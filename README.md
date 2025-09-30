@@ -1,4 +1,8 @@
 # nano-vllm cookbook
+nano-vLLM目前仅支持offline batching（离线批处理），不支持online serving（在线批处理）的方式。整体的流程：
+
+输入序列 和 参数配置 → Tokenizer → Sequence → Scheduler → ModelRunner → Model → Sampler → 输出结果
+
 这里主要是讲解nano-vllm从而更好了解推理引擎，主要从三个方面讲解，一个是入口函数的调用逻辑，一个是推理引擎的核心组成，包括引擎的核心组成模块以及算子层实现。
 
 在原有的功能上适配了MiniCPM4，并且增加了注册新模型的功能，在nano_vllm/models/cpm4.py和nano_vllm/models/registry.py文件
@@ -288,6 +292,36 @@ nano-vllm/
 
 ### 内存管理层级-block_manager.py
 #### 内存管理逻辑总结
+##### 优化点一：写时复制，实现缓存共享
+在并行采样，即 **一个prompt生成多个输出或束搜索等场景中，多个输出序列会共享一个相同的前缀**。 传统方法需要为每个输出复制一份完整的前缀KV缓存，这会造成巨大的显存浪费。而在PagedAttention机制下，我们可以让多个序列的块表指向相同的、存储着前缀KV缓存的物理块。这些共享物理块的ref_count会增加。
+```
+Seq A (Prompt):"Translate to French: Hello"
+Seq B (Prompt):"Translate to French: Hello"
+
+# 两个序列共享存储 Prompt 的物理块
+Seq A BlockTable:[Block1,Block8](ref_count of B1, B8 is2)
+Seq B BlockTable:[Block1,Block8]
+
+# 之后，Seq A 开始生成自己独有的 token "Bonjour"
+# BlockManager 会为它分配一个新块 Block 99
+Seq A BlockTable:[Block1,Block8,Block99]
+# 同时，Seq B 开始生成 "Salut"
+# BlockManager 为它分配另一个新块 Block 101
+Seq B BlockTable:[Block1,Block8,Block101]
+```
+##### 优化点二：基于哈希的前缀缓存
+PagedAttention还解锁了另一项强大的内存共享技术：**跨请求的前缀缓存**。想象一个场景：多个不同的用户请求，可能都包含一个相同的、很长的System Prompt，或者都在引用同一篇长文。如果为每个请求都重新计算和存储这个公共前缀的KV缓存，无疑是巨大的浪费。
+
+##### 优化点三：智能调度与连续批处理
+- 传统静态批处理：等待一个批次内的所有请求都生成完毕后，才能开始下一个批次。GPU 会在等待最慢请求时产生空闲。
+- 连续批处理：请求可以随时加入，也可以随时结束。一旦某个请求完成，调度器会立刻释放其资源，并马上检查等待队列，看是否有新请求可以“见缝插针”地利用刚释放的资源开始处理。
+```
+(GPU 一直保持高负载运转)
+|-- Iter 1: R1, R2, R3, R4 --|
+	|-- Iter 2: R1, R3, R4, R5(new) --| (R2 finished)
+		|-- Iter 3: R1, R4, R5, R6(new) --| (R3 finished)
+```
+
 1. Block 类
 - 表示 KV 缓存中的一个块（block），包含：
   - block_id：唯一编号
